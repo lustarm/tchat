@@ -1,8 +1,6 @@
 use std::collections::HashMap;
 
-pub type Commands = HashMap<String, String>;
+use crate::client::Client;
 
-pub struct Command {
-    name: String,
-    description: String,
-}
+pub type Commands = HashMap<String, Box<dyn Fn(Client) -> Result<(), Box<dyn std::error::Error>>>>;
+

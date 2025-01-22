@@ -11,14 +11,19 @@ use crate::command::Commands;
 const INLINE: &str = "-> ";
 
 /* == CLIENT == */
-#[derive(Debug)]
 pub struct Client {
     stream: TcpStream,
     sid: String,
 
     // Buffer for commands
     buf: String,
-    cmds: HashMap<String, String>,
+    cmds: Commands,
+}
+
+fn bruh(mut c: Client) -> Result<(), Box<dyn std::error::Error>>{
+    c.stream.write(c.sid.as_bytes())?;
+    c.stream.write(b"\r\n")?;
+    Ok(())
 }
 
 impl Client {
@@ -39,12 +44,13 @@ impl Client {
     }
 
     pub fn cmd(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        // insert at call
+        self.cmds.insert(String::from("test"), Box::new(bruh));
         let cmd = self.buf.to_ascii_lowercase();
 
         if let Some(c) = self.cmds.get(&cmd) {
-            self.stream.write(c.as_bytes())?;
+
             self.stream.write(INLINE.as_bytes())?;
-            debug!("value: {}", c);
         } else {
             self.stream.write(b"Invalid command\r\n")?;
             self.stream.write(INLINE.as_bytes())?;
@@ -92,13 +98,6 @@ impl Client {
                 },
 
                 _ => {
-                    if let Some(character) = std::char::from_u32(buf[pos] as u32) {
-                        debug!("buf[pos]: {}", character);
-                        debug!("pos: {}", pos);
-                    } else {
-                        error!("Invalid UTF-8 character for value {}", buf[pos]);
-                    }
-
                     if !buf[pos].is_ascii_alphanumeric() {
                         continue;
                     }
@@ -110,6 +109,7 @@ impl Client {
             }
 
             self.buf = String::from_utf8(buf.to_vec())?;
+            debug!("{}", self.buf.trim_end_matches("\n"));
             self.cmd()?;
         }
 
