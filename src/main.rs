@@ -1,11 +1,11 @@
 /* == STD == */
-use std::net::{TcpListener, TcpStream};
+use std::net::{TcpListener, TcpStream, Shutdown};
 use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 /* == LOG == */
-use log::{info, debug};
+use log::{info, debug, error};
 
 /* == RAND == */
 use rand::{distributions::Alphanumeric, Rng}; // 0.8
@@ -33,12 +33,16 @@ struct Client {
 
 impl Client {
     // Constructor
-    fn new(s: TcpStream) -> Self{
+    fn new(mut s: TcpStream) -> Self{
         info!("Client connected: {}", s.peer_addr()
             .expect("Failed to parse client peer address"));
 
         let s_: String = gen_str().expect("Failed to generate session id string");
         debug!("Session ID generated: {}", s_);
+
+        // Send telnet stuff
+        s.write(b"\xFF\xFB\x01\xFF\xFB\x03\xFF\xFC\x22")
+            .expect("Failed to write telnet codes");
 
         Client {
             stream: s,
@@ -46,17 +50,44 @@ impl Client {
         }
     }
 
+
+
     /* == socket read write == */
 
     // Mut because im writing to TcpStream
     fn srw(&mut self) -> Result<(), Box<dyn std::error::Error>>{
 
         let mut r: bool = true;
+        let mut buf = [0; 128];
+
+        // Dead read telnet stuff
+        self.stream.read(&mut buf)?;
+
+        // Write first prompt
+        self.stream.write(INLINE.as_bytes())?;
 
         while r
         {
-            self.stream.write(b"hello world\n")?;
-            r = false;
+            // Clear buffer
+            buf.fill(0);
+
+            self.stream.read(&mut buf)?;
+
+            match std::str::from_utf8(&buf) {
+                Ok(cmd) => {
+                    debug!("{:?}", cmd.trim_end_matches("\0"));
+                    if cmd.trim_end_matches("\0") == "exit" {
+                        debug!("Exit called by user: {} - {}", self.sid,
+                            self.stream
+                            .peer_addr()
+                            .expect("Failed to parse peer address"));
+                        self.stream.shutdown(Shutdown::Both)?;
+                        // Shut down server also
+                        r = false;
+                    }
+                }, // Print as UTF-8 string
+                Err(e) => error!("Failed to convert buffer to UTF-8: {}", e), // Handle conversion error
+            }
         }
 
         return Ok(());
@@ -79,7 +110,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for stream in listener.incoming() {
         let s: TcpStream = stream?;
         // Is move here redundent?
-        thread::spawn(move || {
+        thread::spawn(|| {
             let mut c: Client = Client::new(s);
             c.srw().expect("Failed SRW");
         });
