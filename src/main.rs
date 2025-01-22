@@ -1,5 +1,6 @@
 /* == STD == */
 use std::net::{TcpListener, TcpStream};
+use std::io::prelude::*;
 use std::sync::{Arc, Mutex};
 use std::thread;
 
@@ -47,12 +48,19 @@ impl Client {
 
     /* == socket read write == */
 
-    /*
-    fn srw(&self) {
-    // etc
-    // self.stream;
+    // Mut because im writing to TcpStream
+    fn srw(&mut self) -> Result<(), Box<dyn std::error::Error>>{
+
+        let mut r: bool = true;
+
+        while r
+        {
+            self.stream.write(b"hello world\n")?;
+            r = false;
+        }
+
+        return Ok(());
     }
-    */
 }
 
 /* == Helper == */
@@ -72,7 +80,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let s: TcpStream = stream?;
         // Is move here redundent?
         thread::spawn(move || {
-            let _c: Client = Client::new(s);
+            let mut c: Client = Client::new(s);
+            c.srw().expect("Failed SRW");
         });
     }
 
