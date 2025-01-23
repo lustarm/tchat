@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::net::TcpStream;
 use std::io::{Read, Write};
+use std::net::TcpStream;
+use std::sync::Arc;
 
-use log::{info, debug, error};
+use log::{debug, info, error};
 
-use crate::rand::gen_str;
 use crate::command::Commands;
+use crate::rand::gen_str;
 
 /* == DEFINES == */
 const INLINE: &str = "-> ";
@@ -20,7 +20,7 @@ pub struct Client {
     cmds: Commands,
 }
 
-fn bruh(mut c: Client) -> Result<(), Box<dyn std::error::Error>>{
+fn bruh(c: &mut Client) -> Result<(), Box<dyn std::error::Error>> {
     c.stream.write(c.sid.as_bytes())?;
     c.stream.write(b"\r\n")?;
     Ok(())
@@ -40,21 +40,27 @@ impl Client {
         s.write(b"\xFF\xFB\x01\xFF\xFB\x03\xFF\xFC\x22")
             .expect("Failed to write telnet codes");
 
-        Client { stream: s, sid: s_, buf: String::new(), cmds: Commands::new() }
+        Client {
+            stream: s,
+            sid: s_,
+            buf: String::new(),
+            cmds: Commands::new(),
+        }
     }
 
     pub fn cmd(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // insert at call
-        self.cmds.insert(String::from("test"), Box::new(bruh));
-        let cmd = self.buf.to_ascii_lowercase();
+        // Insert the command at call time
+        self.cmds.insert(String::from("test"), Arc::new(bruh));
 
-        if let Some(c) = self.cmds.get(&cmd) {
+        // Temporarily store the command function
+        let command_fn = self.cmds.get(&self.buf).unwrap_or_else(|| {
+            error!("Invalid function called");
+            self.stream.write(b"Invalid command\r\n");
+            &(Arc::new(|_| Ok(())) as Arc<dyn Fn(&mut Client) -> Result<(), Box<dyn std::error::Error>>>)
+        }).clone();
 
-            self.stream.write(INLINE.as_bytes())?;
-        } else {
-            self.stream.write(b"Invalid command\r\n")?;
-            self.stream.write(INLINE.as_bytes())?;
-        }
+        // Execute the command
+        command_fn(self)?;
 
         Ok(())
     }
@@ -73,9 +79,11 @@ impl Client {
             match buf[pos] {
                 0xFF => {
                     self.stream.read(&mut buf[pos..pos + 2])?;
-                    if pos > 0 { pos -= 1; }
+                    if pos > 0 {
+                        pos -= 1;
+                    }
                     continue;
-                },
+                }
 
                 b'\x7F' | b'\x08' => {
                     if pos > 0 {
@@ -83,19 +91,19 @@ impl Client {
                         pos -= 1;
                     }
                     continue;
-                },
+                }
 
                 b'\r' | b'\t' => {
                     if pos > 0 {
                         pos -= 1;
                     }
                     continue;
-                },
+                }
 
                 b'\n' | b'\x00' => {
                     self.stream.write(b"\r\n")?;
                     pos = 0;
-                },
+                }
 
                 _ => {
                     if !buf[pos].is_ascii_alphanumeric() {
@@ -109,9 +117,9 @@ impl Client {
             }
 
             self.buf = String::from_utf8(buf.to_vec())?;
-            debug!("{}", self.buf.trim_end_matches("\n"));
+            debug!("{}", self.buf.trim());
             self.cmd()?;
         }
-
     }
 }
+
